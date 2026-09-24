@@ -22,6 +22,9 @@ builder.Services.AddEndpoints(Assembly.GetExecutingAssembly());
 
 WebApplication app = builder.Build();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapEndpoints();
 
 if (app.Environment.IsDevelopment())
@@ -46,7 +49,7 @@ app.UseAuthentication();
 
 app.UseAuthorization();
 
-app.UseRateLimiter();
+app.MapFallbackToFile("index.html");
 
 await app.RunAsync();
 
