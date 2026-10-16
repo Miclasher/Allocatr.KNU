@@ -1,0 +1,547 @@
+@startuml allocatr_domain_model
+title Allocatr.KNU — Domain Model (Class Diagram)
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam packageStyle rectangle
+skinparam nodesep 60
+skinparam ranksep 70
+skinparam class {
+    BackgroundColor<<seeded>> #F3F0FF
+    BackgroundColor<<enum>> #FFF8E1
+    BackgroundColor<<audit>> #FDECEC
+}
+hide empty members
+hide <<enum>> circle
+
+' =====================================================================
+' 1. ОРГАНІЗАЦІЙНА СТРУКТУРА (seeded)
+' =====================================================================
+package "Організаційна структура" {
+
+    abstract class OrganizationalUnit <<seeded>> {
+        + id : UUID
+        + code : String
+        + nameUa : String
+        + nameEn : String
+        + shortName : String
+        + isActive : Boolean
+        + createdAt : DateTime
+    }
+
+    class University <<seeded>> {
+        + emailDomains : String[]
+        + edrpouCode : String
+        + rectorName : String
+    }
+
+    class Faculty <<seeded>> {
+        + deanName : String
+    }
+
+    class Department <<seeded>> {
+        + headName : String
+    }
+
+    class EducationalProgram {
+        + id : UUID
+        + code : String
+        + name : String
+        + specialtyCode : String
+        + degreeLevel : DegreeLevel
+        + durationYears : Integer
+        + isActive : Boolean
+    }
+
+    class StudentGroup {
+        + id : UUID
+        + code : String
+        + admissionYear : Integer
+        + studyYear : Integer
+        + departmentAssignedAt : DateTime
+        + isActive : Boolean
+        --
+        + assignDepartment(d : Department)
+    }
+
+    OrganizationalUnit <|-- University
+    OrganizationalUnit <|-- Faculty
+    OrganizationalUnit <|-- Department
+
+    University "1" *-- "1..*" Faculty : складається з >
+    Faculty "1" *-- "1..*" Department : складається з >
+    Faculty "1" *-- "0..*" EducationalProgram : пропонує >
+    EducationalProgram "0..*" -- "1..*" Department : забезпечують >
+    EducationalProgram "1" *-- "0..*" StudentGroup : групи >
+    StudentGroup "0..*" --> "0..1" Department : закріплена за
+
+    note bottom of StudentGroup
+      department = null, поки кафедру
+      не обрано (може бути обрана
+      при вступі або пізніше).
+      Інваріант: group.department ∈
+      group.program.departments
+    end note
+}
+
+' =====================================================================
+' 2. КОРИСТУВАЧІ, РОЛІ ТА ПРОФІЛІ
+' =====================================================================
+package "Користувачі та профілі" {
+
+    class UserAccount {
+        + id : UUID
+        + corpEmail : Email
+        + firstName : String
+        + lastName : String
+        + middleName : String
+        + status : AccountStatus
+        + emailVerifiedAt : DateTime
+        + onboardingCompletedAt : DateTime
+        + lastLoginAt : DateTime
+        + createdAt : DateTime
+        --
+        + hasRole(role : RoleType) : Boolean
+        + isOnboarded() : Boolean
+    }
+
+    abstract class Profile {
+        + id : UUID
+        + role : RoleType
+        + isActive : Boolean
+        + grantedAt : DateTime
+        + revokedAt : DateTime
+    }
+
+    abstract class AcademicProfile {
+        + bio : Text
+        + researchStatement : Text
+        + embedding : Vector
+        + embeddingUpdatedAt : DateTime
+        + contactLinks : String[]
+    }
+
+    class StudentProfile {
+        + studentCardNumber : String
+        + gpa : Decimal
+        --
+        + program() : EducationalProgram
+        + department() : Department [0..1]
+    }
+
+    class SupervisorProfile {
+        + position : String
+        + academicDegree : String
+        + academicTitle : String
+        + verificationStatus : VerificationStatus
+        + verifiedAt : DateTime
+        + defaultSlotCapacity : Integer
+    }
+
+    class AdminProfile {
+        + permissions : Permission[]
+    }
+
+    class ResearchInterest {
+        + id : UUID
+        + label : String
+        + description : String
+        + parent : ResearchInterest
+        + embedding : Vector
+    }
+
+    class SupervisorRoleRequest {
+        + id : UUID
+        + status : RequestStatus
+        + position : String
+        + justification : Text
+        + submittedAt : DateTime
+        + reviewedAt : DateTime
+        + reviewComment : Text
+        --
+        + approve(by : AdminProfile)
+        + reject(by : AdminProfile, reason : Text)
+    }
+
+    UserAccount "1" *-- "0..*" Profile : має ролі >
+    UserAccount "1" *-- "0..*" SupervisorRoleRequest : подає >
+
+    Profile <|-- AcademicProfile
+    Profile <|-- AdminProfile
+    AcademicProfile <|-- StudentProfile
+    AcademicProfile <|-- SupervisorProfile
+
+    AcademicProfile "0..*" o-- "0..*" ResearchInterest : цікавиться >
+    ResearchInterest "0..1" -- "0..*" ResearchInterest : підтема
+
+    SupervisorRoleRequest "0..*" --> "1" Department : до кафедри
+    SupervisorRoleRequest "0..*" --> "0..1" AdminProfile : розглянув
+}
+
+StudentProfile "0..*" --> "1" StudentGroup : навчається в
+SupervisorProfile "0..*" --> "1..*" Department : працює на
+AdminProfile "0..*" --> "1" OrganizationalUnit : область адміністрування
+
+' =====================================================================
+' 3. КАМПАНІЇ РОЗПОДІЛУ
+' =====================================================================
+package "Кампанії розподілу" {
+
+    class AllocationCampaign {
+        + id : UUID
+        + title : String
+        + workType : WorkType
+        + academicYear : String
+        + targetStudyYear : Integer
+        + status : CampaignStatus
+        + maxPreferences : Integer
+        + inviteLimitPerSupervisor : Integer
+        + createdAt : DateTime
+        --
+        + currentStage() : CampaignStage
+        + advanceStage()
+    }
+
+    class CampaignStage {
+        + id : UUID
+        + type : StageType
+        + orderIndex : Integer
+        + startsAt : DateTime
+        + endsAt : DateTime
+        + status : StageStatus
+        --
+        + isOpen(at : DateTime) : Boolean
+    }
+
+    class SupervisorQuota {
+        + id : UUID
+        + requestedSlots : Integer
+        + approvedSlots : Integer
+        + updatedAt : DateTime
+        --
+        + filledSlots() : Integer
+        + freeSlots() : Integer
+    }
+
+    AllocationCampaign "1" *-- "1..*" CampaignStage : етапи >
+    AllocationCampaign "1" *-- "0..*" SupervisorQuota : квоти >
+}
+
+AllocationCampaign "0..*" --> "1" OrganizationalUnit : організатор (факультет/кафедра)
+AllocationCampaign "0..*" --> "1..*" EducationalProgram : цільові програми
+AllocationCampaign "0..*" --> "1" AdminProfile : створив
+SupervisorQuota "0..*" --> "1" SupervisorProfile : для керівника
+
+' =====================================================================
+' 4. ІНВАЙТИ, ПРІОРИТЕТИ, РОЗПОДІЛ
+' =====================================================================
+package "Інвайти та розподіл" {
+
+    class Invitation {
+        + id : UUID
+        + message : Text
+        + status : InvitationStatus
+        + sentAt : DateTime
+        + expiresAt : DateTime
+        + respondedAt : DateTime
+        + declineReason : Text
+        --
+        + accept() : Assignment
+        + decline(reason : Text)
+        + revoke()
+    }
+
+    class PreferenceList {
+        + id : UUID
+        + status : PreferenceListStatus
+        + submittedAt : DateTime
+        + updatedAt : DateTime
+        --
+        + submit()
+    }
+
+    class PreferenceItem {
+        + rank : Integer
+        + motivation : Text
+        + semanticScore : Decimal
+    }
+
+    class AllocationRun {
+        + id : UUID
+        + algorithm : String
+        + algorithmVersion : String
+        + parameters : JSON
+        + status : RunStatus
+        + startedAt : DateTime
+        + finishedAt : DateTime
+        + unassignedCount : Integer
+        + isApplied : Boolean
+    }
+
+    class Assignment {
+        + id : UUID
+        + source : AssignmentSource
+        + status : AssignmentStatus
+        + assignedAt : DateTime
+        + matchedPreferenceRank : Integer
+        + correctionReason : Text
+        --
+        + supersede(by : Assignment)
+    }
+
+    PreferenceList "1" *-- "1..*" PreferenceItem : пріоритети >
+    AllocationRun "1" o-- "0..*" Assignment : породив >
+    Assignment "0..1" -- "0..1" Assignment : замінює (ручна корекція) >
+    Invitation "0..1" -- "0..1" Assignment : результат >
+}
+
+AllocationCampaign "1" *-- "0..*" Invitation
+AllocationCampaign "1" *-- "0..*" PreferenceList
+AllocationCampaign "1" *-- "0..*" AllocationRun
+AllocationCampaign "1" *-- "0..*" Assignment
+
+Invitation "0..*" --> "1" SupervisorProfile : від
+Invitation "0..*" --> "1" StudentProfile : кому
+PreferenceList "0..*" --> "1" StudentProfile : студент
+PreferenceItem "0..*" --> "1" SupervisorProfile : керівник
+AllocationRun "0..*" --> "1" AdminProfile : запустив
+Assignment "0..*" --> "1" StudentProfile : студент
+Assignment "0..*" --> "1" SupervisorProfile : керівник
+Assignment "0..*" --> "0..1" AdminProfile : скоригував
+
+' =====================================================================
+' 5. ТЕМИ ТА ДОКУМЕНТООБІГ
+' =====================================================================
+package "Теми та документи" {
+
+    class TopicProposal {
+        + id : UUID
+        + titleUa : String
+        + titleEn : String
+        + annotation : Text
+        + version : Integer
+        + status : TopicStatus
+        + proposedAt : DateTime
+        + reviewedAt : DateTime
+        + reviewComment : Text
+        --
+        + approve()
+        + requestRevision(comment : Text)
+        + reject(comment : Text)
+    }
+
+    class DocumentTemplate <<seeded>> {
+        + id : UUID
+        + type : DocumentType
+        + name : String
+        + version : Integer
+        + body : Text
+        + isActive : Boolean
+    }
+
+    class GeneratedDocument {
+        + id : UUID
+        + type : DocumentType
+        + format : FileFormat
+        + fileUri : String
+        + checksum : String
+        + generatedAt : DateTime
+        + signatureStatus : SignatureStatus
+    }
+
+    GeneratedDocument "0..*" --> "1" DocumentTemplate : за шаблоном
+}
+
+Assignment "1" *-- "0..*" TopicProposal : версії теми >
+Assignment "1" *-- "0..*" GeneratedDocument : заяви >
+TopicProposal "0..*" --> "1" UserAccount : запропонував
+GeneratedDocument "0..*" --> "1" TopicProposal : погоджена тема
+DocumentTemplate "0..*" --> "1" OrganizationalUnit : належить
+
+' =====================================================================
+' 6. АУДИТ
+' =====================================================================
+package "Аудит" {
+
+    class AuditLogEntry <<audit>> {
+        + id : UUID
+        + occurredAt : DateTime
+        + actorRole : RoleType
+        + action : AuditAction
+        + entityType : String
+        + entityId : UUID
+        + outcome : AuditOutcome
+        + severity : AuditSeverity
+        + message : String
+        + failureReason : Text
+        + ipAddress : String
+        + userAgent : String
+        + requestId : String
+        + correlationId : String
+    }
+
+    class AuditFieldChange <<audit>> {
+        + fieldName : String
+        + oldValue : JSON
+        + newValue : JSON
+    }
+
+    AuditLogEntry "1" *-- "0..*" AuditFieldChange : зміни полів >
+}
+
+AuditLogEntry "0..*" --> "0..1" UserAccount : actor (null = система)
+AuditLogEntry "0..*" --> "0..1" UserAccount : impersonatedUser
+AuditLogEntry "0..*" --> "0..1" AllocationCampaign : контекст кампанії
+AuditLogEntry "0..*" --> "0..1" OrganizationalUnit : контекст підрозділу
+
+note bottom of AuditLogEntry
+  Append-only (без UPDATE/DELETE).
+  Створюється для кожної зміни стану
+  будь-якої сутності домену:
+  entityType + entityId — поліморфне
+  посилання, щоб лог переживав
+  видалення сутностей.
+  Кілька записів однієї операції
+  пов'язані через correlationId.
+end note
+
+' =====================================================================
+' 7. ПЕРЕЛІЧЕННЯ
+' =====================================================================
+package "Переліки" {
+    enum RoleType <<enum>> {
+        STUDENT
+        SUPERVISOR
+        ADMIN
+    }
+    enum AccountStatus <<enum>> {
+        PENDING_EMAIL_VERIFICATION
+        ONBOARDING
+        ACTIVE
+        BLOCKED
+    }
+    enum VerificationStatus <<enum>> {
+        UNVERIFIED
+        PENDING
+        VERIFIED
+        REVOKED
+    }
+    enum RequestStatus <<enum>> {
+        PENDING
+        APPROVED
+        REJECTED
+        CANCELLED
+    }
+    enum DegreeLevel <<enum>> {
+        BACHELOR
+        MASTER
+        PHD
+    }
+    enum WorkType <<enum>> {
+        COURSE_WORK
+        BACHELOR_THESIS
+        MASTER_THESIS
+    }
+    enum CampaignStatus <<enum>> {
+        DRAFT
+        ACTIVE
+        COMPLETED
+        ARCHIVED
+    }
+    enum StageType <<enum>> {
+        QUOTA_SETUP
+        DIRECT_INVITES
+        PRIORITY_SUBMISSION
+        AUTO_ALLOCATION
+        MANUAL_CORRECTION
+        TOPIC_APPROVAL
+        DOCUMENTS
+    }
+    enum StageStatus <<enum>> {
+        PLANNED
+        OPEN
+        CLOSED
+    }
+    enum InvitationStatus <<enum>> {
+        PENDING
+        ACCEPTED
+        DECLINED
+        EXPIRED
+        REVOKED
+    }
+    enum PreferenceListStatus <<enum>> {
+        DRAFT
+        SUBMITTED
+        LOCKED
+    }
+    enum RunStatus <<enum>> {
+        RUNNING
+        SUCCEEDED
+        FAILED
+    }
+    enum AssignmentSource <<enum>> {
+        INVITATION
+        AUTOMATIC
+        MANUAL
+    }
+    enum AssignmentStatus <<enum>> {
+        ACTIVE
+        SUPERSEDED
+        CANCELLED
+    }
+    enum TopicStatus <<enum>> {
+        PROPOSED
+        REVISION_REQUESTED
+        APPROVED
+        REJECTED
+    }
+    enum DocumentType <<enum>> {
+        TOPIC_APPLICATION
+        SUPERVISOR_CONSENT
+    }
+    enum FileFormat <<enum>> {
+        PDF
+        DOCX
+    }
+    enum SignatureStatus <<enum>> {
+        NOT_SIGNED
+        SIGNED_BY_STUDENT
+        SIGNED_BY_SUPERVISOR
+        FULLY_SIGNED
+    }
+    enum AuditAction <<enum>> {
+        CREATE
+        UPDATE
+        DELETE
+        LOGIN
+        LOGOUT
+        STATUS_CHANGE
+        ROLE_GRANTED
+        ROLE_REVOKED
+        ALLOCATION_RUN
+        MANUAL_CORRECTION
+        DOCUMENT_EXPORT
+        EXPORT_DATA
+    }
+    enum AuditOutcome <<enum>> {
+        SUCCESS
+        FAILURE
+        DENIED
+    }
+    enum AuditSeverity <<enum>> {
+        INFO
+        WARNING
+        CRITICAL
+    }
+    enum Permission <<enum>> {
+        MANAGE_CAMPAIGNS
+        MANAGE_STRUCTURE
+        VERIFY_SUPERVISORS
+        RUN_ALLOCATION
+        CORRECT_ALLOCATION
+        VIEW_AUDIT_LOG
+    }
+
+}
+
+@enduml
