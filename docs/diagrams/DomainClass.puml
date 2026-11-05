@@ -29,12 +29,6 @@ package "Організаційна структура" {
         + createdAt : DateTime
     }
 
-    class University <<seeded>> {
-        + emailDomains : String[]
-        + edrpouCode : String
-        + rectorName : String
-    }
-
     class Faculty <<seeded>> {
         + deanName : String
     }
@@ -64,16 +58,14 @@ package "Організаційна структура" {
         + assignDepartment(d : Department)
     }
 
-    OrganizationalUnit <|-- University
     OrganizationalUnit <|-- Faculty
     OrganizationalUnit <|-- Department
 
-    University "1" *-- "1..*" Faculty : складається з >
-    Faculty "1" *-- "1..*" Department : складається з >
-    Faculty "1" *-- "0..*" EducationalProgram : пропонує >
+    Faculty "1" *-- "1..*" Department
+    Faculty "1" *-- "0..*" EducationalProgram
     EducationalProgram "0..*" -- "1..*" Department : забезпечують >
-    EducationalProgram "1" *-- "0..*" StudentGroup : групи >
-    StudentGroup "0..*" --> "0..1" Department : закріплена за
+    EducationalProgram "1" *-- "0..*" StudentGroup
+    StudentGroup "0..*" --> "0..1" Department
 
     note bottom of StudentGroup
       department = null, поки кафедру
@@ -123,7 +115,8 @@ package "Користувачі та профілі" {
 
     class StudentProfile {
         + studentCardNumber : String
-        + gpa : Decimal
+        + gpa : Decimal [0..1]
+        + gpaUpdatedAt : DateTime
         --
         + program() : EducationalProgram
         + department() : Department [0..1]
@@ -140,6 +133,8 @@ package "Користувачі та профілі" {
 
     class AdminProfile {
         + permissions : Permission[]
+        --
+        + can(p : Permission) : Boolean
     }
 
     class ResearchInterest {
@@ -163,8 +158,8 @@ package "Користувачі та профілі" {
         + reject(by : AdminProfile, reason : Text)
     }
 
-    UserAccount "1" *-- "0..*" Profile : має ролі >
-    UserAccount "1" *-- "0..*" SupervisorRoleRequest : подає >
+    UserAccount "1" *-- "0..*" Profile
+    UserAccount "1" *-- "0..*" SupervisorRoleRequest
 
     Profile <|-- AcademicProfile
     Profile <|-- AdminProfile
@@ -174,13 +169,29 @@ package "Користувачі та профілі" {
     AcademicProfile "0..*" o-- "0..*" ResearchInterest : цікавиться >
     ResearchInterest "0..1" -- "0..*" ResearchInterest : підтема
 
-    SupervisorRoleRequest "0..*" --> "1" Department : до кафедри
-    SupervisorRoleRequest "0..*" --> "0..1" AdminProfile : розглянув
+    SupervisorRoleRequest "0..*" --> "1" Department
+    SupervisorRoleRequest "0..*" --> "0..1" AdminProfile
+
+    StudentProfile "0..*" --> "0..1" AdminProfile
+
+    note right of StudentProfile
+      gpa = null, поки його не внесено.
+      Вносити та змінювати gpa може лише
+      AdminProfile з Permission.MANAGE_GPA;
+      студент не може редагувати своє gpa.
+      Кожна зміна фіксується в AuditLogEntry.
+    end note
 }
 
-StudentProfile "0..*" --> "1" StudentGroup : навчається в
-SupervisorProfile "0..*" --> "1..*" Department : працює на
-AdminProfile "0..*" --> "1" OrganizationalUnit : область адміністрування
+StudentProfile "0..*" --> "1" StudentGroup
+SupervisorProfile "0..*" --> "1..*" Department
+AdminProfile "0..*" --> "0..1" OrganizationalUnit
+
+note right of AdminProfile
+  Область адміністрування — факультет
+  або кафедра; null = адміністратор
+  усієї системи.
+end note
 
 ' =====================================================================
 ' 3. КАМПАНІЇ РОЗПОДІЛУ
@@ -223,17 +234,16 @@ package "Кампанії розподілу" {
         + freeSlots() : Integer
     }
 
-    AllocationCampaign "1" *-- "1..*" CampaignStage : етапи >
-    AllocationCampaign "1" *-- "0..*" SupervisorQuota : квоти >
+    AllocationCampaign "1" *-- "1..*" CampaignStage
+    AllocationCampaign "1" *-- "0..*" SupervisorQuota
 }
 
-AllocationCampaign "0..*" --> "1" OrganizationalUnit : організатор (факультет/кафедра)
-AllocationCampaign "0..*" --> "1..*" EducationalProgram : цільові програми
-AllocationCampaign "0..*" --> "1" AdminProfile : створив
-SupervisorQuota "0..*" --> "1" SupervisorProfile : для керівника
+AllocationCampaign "0..*" --> "1" EducationalProgram
+AllocationCampaign "0..*" --> "1" AdminProfile
+SupervisorQuota "0..*" --> "1" SupervisorProfile
 
 ' =====================================================================
-' 4. ІНВАЙТИ, ПРІОРИТЕТИ, РОЗПОДІЛ
+' 4. ІНВАЙТИ, ЗАЯВКИ З ПРІОРИТЕТАМИ, РОЗПОДІЛ
 ' =====================================================================
 package "Інвайти та розподіл" {
 
@@ -264,18 +274,13 @@ package "Інвайти та розподіл" {
         + rank : Integer
         + motivation : Text
         + semanticScore : Decimal
-    }
-
-    class AllocationRun {
-        + id : UUID
-        + algorithm : String
-        + algorithmVersion : String
-        + parameters : JSON
-        + status : RunStatus
-        + startedAt : DateTime
-        + finishedAt : DateTime
-        + unassignedCount : Integer
-        + isApplied : Boolean
+        + status : PreferenceItemStatus
+        + decidedAt : DateTime
+        + decisionComment : Text
+        --
+        + accept() : Assignment
+        + reject(comment : Text)
+        + withdraw()
     }
 
     class Assignment {
@@ -289,25 +294,35 @@ package "Інвайти та розподіл" {
         + supersede(by : Assignment)
     }
 
-    PreferenceList "1" *-- "1..*" PreferenceItem : пріоритети >
-    AllocationRun "1" o-- "0..*" Assignment : породив >
+    PreferenceList "1" *-- "1..*" PreferenceItem
     Assignment "0..1" -- "0..1" Assignment : замінює (ручна корекція) >
     Invitation "0..1" -- "0..1" Assignment : результат >
+    PreferenceItem "0..1" -- "0..1" Assignment : результат (прийнята заявка) >
+
+    note bottom of PreferenceItem
+      Ручний розподіл за пріоритетами:
+      • студент подає заявки з rank 1..maxPreferences;
+      • заявка rank=1 одразу PENDING, решта QUEUED;
+      • керівник приймає (лише якщо freeSlots() > 0)
+        або відхиляє заявку;
+      • при REJECTED наступна за rank заявка
+        студента стає PENDING;
+      • при ACCEPTED створюється Assignment,
+        решта заявок студента — CANCELLED.
+    end note
 }
 
 AllocationCampaign "1" *-- "0..*" Invitation
 AllocationCampaign "1" *-- "0..*" PreferenceList
-AllocationCampaign "1" *-- "0..*" AllocationRun
 AllocationCampaign "1" *-- "0..*" Assignment
 
-Invitation "0..*" --> "1" SupervisorProfile : від
-Invitation "0..*" --> "1" StudentProfile : кому
-PreferenceList "0..*" --> "1" StudentProfile : студент
-PreferenceItem "0..*" --> "1" SupervisorProfile : керівник
-AllocationRun "0..*" --> "1" AdminProfile : запустив
-Assignment "0..*" --> "1" StudentProfile : студент
-Assignment "0..*" --> "1" SupervisorProfile : керівник
-Assignment "0..*" --> "0..1" AdminProfile : скоригував
+Invitation "0..*" --> "1" SupervisorProfile
+Invitation "0..*" --> "1" StudentProfile
+PreferenceList "0..*" --> "1" StudentProfile
+PreferenceItem "0..*" --> "1" SupervisorProfile
+Assignment "0..*" --> "1" StudentProfile
+Assignment "0..*" --> "1" SupervisorProfile
+Assignment "0..*" --> "0..1" AdminProfile
 
 ' =====================================================================
 ' 5. ТЕМИ ТА ДОКУМЕНТООБІГ
@@ -349,14 +364,14 @@ package "Теми та документи" {
         + signatureStatus : SignatureStatus
     }
 
-    GeneratedDocument "0..*" --> "1" DocumentTemplate : за шаблоном
+    GeneratedDocument "0..*" --> "1" DocumentTemplate
 }
 
-Assignment "1" *-- "0..*" TopicProposal : версії теми >
-Assignment "1" *-- "0..*" GeneratedDocument : заяви >
-TopicProposal "0..*" --> "1" UserAccount : запропонував
-GeneratedDocument "0..*" --> "1" TopicProposal : погоджена тема
-DocumentTemplate "0..*" --> "1" OrganizationalUnit : належить
+Assignment "1" *-- "0..*" TopicProposal
+Assignment "1" *-- "0..*" GeneratedDocument
+TopicProposal "0..*" --> "1" UserAccount
+GeneratedDocument "0..*" --> "1" TopicProposal
+DocumentTemplate "0..*" --> "1" OrganizationalUnit
 
 ' =====================================================================
 ' 6. АУДИТ
@@ -386,13 +401,13 @@ package "Аудит" {
         + newValue : JSON
     }
 
-    AuditLogEntry "1" *-- "0..*" AuditFieldChange : зміни полів >
+    AuditLogEntry "1" *-- "0..*" AuditFieldChange
 }
 
-AuditLogEntry "0..*" --> "0..1" UserAccount : actor (null = система)
-AuditLogEntry "0..*" --> "0..1" UserAccount : impersonatedUser
-AuditLogEntry "0..*" --> "0..1" AllocationCampaign : контекст кампанії
-AuditLogEntry "0..*" --> "0..1" OrganizationalUnit : контекст підрозділу
+AuditLogEntry "0..*" --> "0..1" UserAccount
+AuditLogEntry "0..*" --> "0..1" UserAccount
+AuditLogEntry "0..*" --> "0..1" AllocationCampaign
+AuditLogEntry "0..*" --> "0..1" OrganizationalUnit
 
 note bottom of AuditLogEntry
   Append-only (без UPDATE/DELETE).
@@ -403,6 +418,10 @@ note bottom of AuditLogEntry
   видалення сутностей.
   Кілька записів однієї операції
   пов'язані через correlationId.
+  Зв'язки з UserAccount:
+  • actor — хто виконав дію (null = система);
+  • impersonatedUser — від чийого імені
+    виконано дію (якщо є імперсонація).
 end note
 
 ' =====================================================================
@@ -452,7 +471,7 @@ package "Переліки" {
         QUOTA_SETUP
         DIRECT_INVITES
         PRIORITY_SUBMISSION
-        AUTO_ALLOCATION
+        APPLICATION_REVIEW
         MANUAL_CORRECTION
         TOPIC_APPROVAL
         DOCUMENTS
@@ -474,14 +493,17 @@ package "Переліки" {
         SUBMITTED
         LOCKED
     }
-    enum RunStatus <<enum>> {
-        RUNNING
-        SUCCEEDED
-        FAILED
+    enum PreferenceItemStatus <<enum>> {
+        QUEUED
+        PENDING
+        ACCEPTED
+        REJECTED
+        WITHDRAWN
+        CANCELLED
     }
     enum AssignmentSource <<enum>> {
         INVITATION
-        AUTOMATIC
+        APPLICATION
         MANUAL
     }
     enum AssignmentStatus <<enum>> {
@@ -518,7 +540,6 @@ package "Переліки" {
         STATUS_CHANGE
         ROLE_GRANTED
         ROLE_REVOKED
-        ALLOCATION_RUN
         MANUAL_CORRECTION
         DOCUMENT_EXPORT
         EXPORT_DATA
@@ -537,8 +558,8 @@ package "Переліки" {
         MANAGE_CAMPAIGNS
         MANAGE_STRUCTURE
         VERIFY_SUPERVISORS
-        RUN_ALLOCATION
         CORRECT_ALLOCATION
+        MANAGE_GPA
         VIEW_AUDIT_LOG
     }
 

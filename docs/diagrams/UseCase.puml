@@ -16,6 +16,7 @@ rectangle "Система розподілу дипломних тем та ку
         usecase "UC-11: Керування освітніми програмами" as UC11
         usecase "UC-12: Керування кафедрами" as UC12
         usecase "UC-17: Переглядати системні логи" as UC17
+        usecase "UC-19: Внести GPA студента (право MANAGE_GPA)" as UC19
     }
 
     package "Профілі та інтереси" {
@@ -32,10 +33,10 @@ rectangle "Система розподілу дипломних тем та ку
         usecase "UC-7: Обробити інвайт від наукового керівника" as UC7
     }
 
-    package "Конкурсний та автоматичний розподіл" {
+    package "Подання заявок та ручний розподіл" {
         usecase "UC-8: Семантичний пошук наукового керівника" as UC8
-        usecase "UC-9: Подати пріоритети на розподіл (пул)" as UC9
-        usecase "UC-10: Запустити автоматичний розподіл студентів" as UC10
+        usecase "UC-9: Подати заявки до керівників з пріоритетами" as UC9
+        usecase "UC-10: Розглянути заявки студентів (прийняти / відхилити)" as UC10
         usecase "UC-15: Виконати ручну корекцію розподілу" as UC15
     }
 
@@ -60,16 +61,17 @@ Supervisor --> UC0
 Supervisor --> UC13
 Supervisor --> UC5
 Supervisor --> UC6
+Supervisor --> UC10
 Supervisor --> UC16
 
 ' Зв'язки: Адміністратор
 Admin --> UC3
 Admin --> UC4
-Admin --> UC10
 Admin --> UC11
 Admin --> UC12
 Admin --> UC15
 Admin --> UC17
+Admin --> UC19
 
 ' Внутрішні залежності use cases
 UC0 .> UC1 : <<include>>
